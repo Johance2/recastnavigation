@@ -1,0 +1,7 @@
+include_directories(../RecastWrapper)
+add_executable(NavMeshBuilder main.cpp)
+target_link_libraries(NavMeshBuilder RecastWrapper NavMeshWrapper)
+if(MSVC)
+	file(MAKE_DIRECTORY ${CMAKE_SOURCE_DIR}/Bin)
+	set(EXECUTABLE_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/Unity/Bin)
+endif()

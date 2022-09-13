@@ -1,5 +1,11 @@
 cmake_minimum_required(VERSION 3.0)
 
+#set(CMAKE_SYSTEM_VERSION 25) # API level
+#set(CMAKE_ANDROID_ARCH_ABI arm64-v8a)
+#set(CMAKE_ANDROID_NDK "C:/Microsoft/AndroidNDK/android-ndk-r21e")
+#set(CMAKE_SYSTEM_NAME Android)
+#set(CMAKE_ANDROID_STANDALONE_TOOLCHAIN "C:/Microsoft/AndroidNDK/android-ndk-r21e/build/cmake/android.toolchain.cmake")
+
 project(RecastNavigation)
 
 # lib versions
@@ -7,9 +13,10 @@ SET(SOVERSION 1)
 set(LIB_VERSION 1.5.1)
 string(REPLACE "." "," LIB_VERSION_NUM "${LIB_VERSION}.0")
 
-option(RECASTNAVIGATION_DEMO "Build demo" ON)
-option(RECASTNAVIGATION_TESTS "Build tests" ON)
-option(RECASTNAVIGATION_EXAMPLES "Build examples" ON)
+option(RECASTNAVIGATION_DEMO "Build demo" OFF)
+option(RECASTNAVIGATION_TESTS "Build tests" OFF)
+option(RECASTNAVIGATION_EXAMPLES "Build examples" OFF)
+option(RECASTNAVIGATION_UNITY "Build Unity Wrapper" ON)
 
 if(MSVC AND BUILD_SHARED_LIBS)
     set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
@@ -50,4 +57,8 @@ endif ()
 if (RECASTNAVIGATION_TESTS)
     enable_testing()
     add_subdirectory(Tests)
+endif ()
+
+if (RECASTNAVIGATION_UNITY)
+    add_subdirectory(Unity)
 endif ()

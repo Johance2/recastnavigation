@@ -1,0 +1,6 @@
+add_subdirectory (RecastWrapper)
+add_subdirectory (NavMeshWrapper)
+add_subdirectory (AStarWrapper)
+if(MSVC)
+	add_subdirectory (NavMeshBuilder)
+endif()
