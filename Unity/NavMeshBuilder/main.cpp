@@ -19,6 +19,9 @@ extern "C"
 	bool AddBoxObstacles(float minx, float miny, float minz, float maxx, float maxy, float maxz, unsigned int& id, bool update);
 	bool RemoveObstacles(unsigned int id, bool update);
 	bool UpdateObstaclesMesh();
+
+	//主要是Unity编辑器需要清理所有的NavMesh
+	void ClearNavMesh();
 }
 
 int main(int argc, char* argv[])

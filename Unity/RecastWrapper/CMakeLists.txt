@@ -7,8 +7,8 @@ include_directories(../../Detour/Include)
 if(IOS)
 	add_library(RecastWrapper ${RECASTWRAPPER_SOURCES})
 	add_custom_command(TARGET RecastWrapper POST_BUILD
-		COMMAND /usr/bin/libtool -static -o $<TARGET_FILE:RecastWrapper>
-		$<TARGET_FILE:RecastWrapper> $<TARGET_FILE:Detour>
+		COMMAND /usr/bin/libtool -static -o $<TARGET_FILE:RecastWrapper> $<TARGET_FILE:RecastWrapper> $<TARGET_FILE:Detour>
+		COMMAND /usr/bin/libtool -static -o $<TARGET_FILE:RecastWrapper> $<TARGET_FILE:RecastWrapper> $<TARGET_FILE:DetourTileCache>
 	)
 else()
 	add_library(RecastWrapper SHARED ${RECASTWRAPPER_SOURCES})

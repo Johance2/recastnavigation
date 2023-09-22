@@ -2,7 +2,7 @@ rm -r build
 mkdir build && cd build
 cmake ../ -GXcode \
     -DCMAKE_SYSTEM_NAME=iOS \
-    "-DCMAKE_OSX_ARCHITECTURES=armv7;armv7s;arm64;i386;x86_64" \
+    "-DCMAKE_OSX_ARCHITECTURES=arm64" \
     -DCMAKE_OSX_DEPLOYMENT_TARGET=9.3 \
     -DCMAKE_INSTALL_PREFIX=`pwd`/_install \
     -DCMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH=NO \

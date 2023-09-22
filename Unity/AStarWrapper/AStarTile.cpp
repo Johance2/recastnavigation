@@ -31,6 +31,20 @@ void CAStarTile::Init(int width, int height, bool bEnable45 /*= false*/)
 			CAStarTileNode *pNode = &m_vecTileNode[nIndex];
 
 			Neighbor neighbor;
+			// вС
+			if (col > 0)
+			{
+				neighbor.loss = 10;
+				neighbor.node = &m_vecTileNode[nIndex -1];
+				pNode->neighbor.push_back(neighbor);
+			}
+			// ср
+			if (col < width - 1)
+			{
+				neighbor.loss = 10;
+				neighbor.node = &m_vecTileNode[nIndex +1];
+				pNode->neighbor.push_back(neighbor);
+			}
 			// ио
 			if (row > 0)
 			{

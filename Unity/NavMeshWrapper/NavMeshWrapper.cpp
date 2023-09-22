@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <memory>
 #include <fstream>
+#include "DetourCrowd.h"
 #include "DetourNavMesh.h"
 #include "DetourNavMeshBuilder.h"
 #include "DetourNavMeshQuery.h"
@@ -18,12 +19,7 @@
 #endif
 
 FILE* fp;
-dtNavMesh *g_navMesh = nullptr;
-dtNavMeshQuery *g_navQuery = nullptr;
-
 static const int MAX_POLYS = 256;
-float m_straightPath[MAX_POLYS * 3];
-int32_t m_nStraightPath = 0;
 
 struct NavMeshSetHeader
 {
@@ -195,12 +191,55 @@ struct MeshProcess : public dtTileCacheMeshProcess
 	}
 };
 
-dtTileCache* g_tileCache = nullptr;
 LinearAllocator* m_talloc = new LinearAllocator(32000);
 FastLZCompressor* m_tcomp = new FastLZCompressor;
 MeshProcess* m_tmproc = new MeshProcess;
 //------------------------- TempObstacles End-------------------------------
 
+
+class NavMeshInstance
+{
+public:
+	NavMeshInstance()
+	{
+		m_navMesh = nullptr;
+		m_navQuery = nullptr;
+		m_crowd = nullptr;
+		m_tileCache = nullptr;
+	}
+
+	~NavMeshInstance()
+	{
+		if (m_navMesh)
+		{
+			dtFreeNavMesh(m_navMesh);
+			m_navMesh = nullptr;
+		}
+		if (m_crowd)
+		{
+			dtFreeCrowd(m_crowd);
+			m_crowd = nullptr;
+		}
+		if (m_navQuery)
+		{
+			dtFreeNavMeshQuery(m_navQuery);
+			m_navQuery = nullptr;
+		}
+		if (m_tileCache)
+		{
+			dtFreeTileCache(m_tileCache);
+			m_tileCache = nullptr;
+		}
+	}
+
+public:
+	dtNavMesh* m_navMesh;
+	dtNavMeshQuery* m_navQuery;
+	dtCrowd* m_crowd;
+	dtTileCache* m_tileCache;
+	float m_straightPath[MAX_POLYS * 3];
+	int32_t m_nStraightPath = 0;
+};
 
 
 #ifdef ENABLE_LOG
@@ -209,18 +248,20 @@ MeshProcess* m_tmproc = new MeshProcess;
 	#define LOG
 #endif
 
-bool LoadNavMesh(unsigned char* pucValue, unsigned int uiLength)
+#include <list>
+std::list<NavMeshInstance*> g_navmesh_insts;
+
+NavMeshInstance* LoadNavMesh(unsigned char* pucValue, unsigned int uiLength)
 {
-	UnLoadNavMesh();
 #ifdef ENABLE_LOG
 	fp = fopen("navmesh.log", "w+");
 #endif
 	LOG("--------------------------------------------LoadNavMesh--------------------------------------------");
-	g_navMesh = dtAllocNavMesh();
+	dtNavMesh *g_navMesh = dtAllocNavMesh();
 	if (!g_navMesh)
 	{
 		LOG("Could not create Detour navmesh");
-		return false;
+		return nullptr;
 	}
 
 	dtStatus status;
@@ -231,24 +272,30 @@ bool LoadNavMesh(unsigned char* pucValue, unsigned int uiLength)
 	if (dtStatusFailed(status))
 	{
 		LOG("Could not init Detour navmesh");
-		return false;
+		return nullptr;
 	}
 
-	g_navQuery = dtAllocNavMeshQuery();
+	dtNavMeshQuery *g_navQuery = dtAllocNavMeshQuery();
 	status = g_navQuery->init(g_navMesh, 2048);
 	if (dtStatusFailed(status))
 	{
 		LOG("Could not init Detour navmesh query");
-		return false;
+		return nullptr;
 	}
 	LOG("LoadNavMesh:%d", uiLength);
-	return true;
+
+	dtCrowd *g_crowd = dtAllocCrowd();
+
+	NavMeshInstance* navMeshInstance = new NavMeshInstance();
+	navMeshInstance->m_crowd = g_crowd;
+	navMeshInstance->m_navMesh = g_navMesh;
+	navMeshInstance->m_navQuery = g_navQuery;
+	g_navmesh_insts.push_back(navMeshInstance);
+	return navMeshInstance;
 }
 
-bool LoadObstaclesMesh(unsigned char* pucValue, unsigned int uiLength)
+NavMeshInstance *LoadObstaclesMesh(unsigned char* pucValue, unsigned int uiLength)
 {
-	UnLoadNavMesh();
-
 #ifdef ENABLE_LOG
 	fp = fopen("navmesh.log", "w+");
 #endif
@@ -261,37 +308,37 @@ bool LoadObstaclesMesh(unsigned char* pucValue, unsigned int uiLength)
 	pos += sizeof(TileCacheSetHeader);
 	if (header.magic != TILECACHESET_MAGIC)
 	{
-		return false;
+		return nullptr;
 	}
 	if (header.version != TILECACHESET_VERSION)
 	{
-		return false;
+		return nullptr;
 	}
 
-	g_navMesh = dtAllocNavMesh();
+	dtNavMesh *g_navMesh = dtAllocNavMesh();
 	if (!g_navMesh)
 	{
-		return false;
+		return nullptr;
 	}
 	dtStatus status = g_navMesh->init(&header.meshParams);
 	if (dtStatusFailed(status))
 	{
-		return false;
+		return nullptr;
 	}
 
 	m_talloc = new LinearAllocator(32000);
 	m_tcomp = new FastLZCompressor;
 	m_tmproc = new MeshProcess;
-	g_tileCache = dtAllocTileCache();
+	dtTileCache *g_tileCache = dtAllocTileCache();
 	if (!g_tileCache)
 	{
 		fclose(fp);
-		return false;
+		return nullptr;
 	}
 	status = g_tileCache->init(&header.cacheParams, m_talloc, m_tcomp, m_tmproc);
 	if (dtStatusFailed(status))
 	{
-		return false; 
+		return nullptr;
 	}
 
 	// Read tiles.
@@ -320,22 +367,33 @@ bool LoadObstaclesMesh(unsigned char* pucValue, unsigned int uiLength)
 			g_tileCache->buildNavMeshTile(tile, g_navMesh);
 	}
 
-	g_navQuery = dtAllocNavMeshQuery();
+	dtNavMeshQuery *g_navQuery = dtAllocNavMeshQuery();
 	status = g_navQuery->init(g_navMesh, 2048);
 	if (dtStatusFailed(status))
 	{
 		LOG("Could not init Detour navmesh query");
-		return false;
+		return nullptr;
 	}
 	LOG("LoadObstaclesMesh:%d", uiLength);
 
-	return true;
+	dtCrowd *g_crowd = dtAllocCrowd();
+
+
+	NavMeshInstance* navMeshInstance = new NavMeshInstance();
+	navMeshInstance->m_crowd = g_crowd;
+	navMeshInstance->m_navMesh = g_navMesh;
+	navMeshInstance->m_navQuery = g_navQuery;
+	navMeshInstance->m_tileCache = g_tileCache;
+
+	g_navmesh_insts.push_back(navMeshInstance);
+
+	return navMeshInstance;
 }
 
-int FindStraightPath(float startX, float startY, float endX, float endY)
+int FindStraightPath(NavMeshInstance* inst, float startX, float startY, float endX, float endY)
 {
 	LOG("FindStraightPath Enter:start(%f, %f) end(%f, %f)", startX, startY, endX, endY);
-	if (!g_navQuery)
+	if (!inst->m_navQuery)
 	{
 		LOG("navQuery is nullptr");
 		return 0;
@@ -355,7 +413,7 @@ int FindStraightPath(float startX, float startY, float endX, float endY)
 	m_filter.setIncludeFlags(SAMPLE_POLYFLAGS_ALL ^ SAMPLE_POLYFLAGS_DISABLED);
 	m_filter.setExcludeFlags(0);
 
-	float m_polyPickExt[3] = { 2.0f, 4.0f, 2.0f };
+	float m_polyPickExt[3] = { 3.0f, 4.0f, 3.0f };
 
 	float m_fixedEPos[3];
 	dtPolyRef m_polys[MAX_POLYS];
@@ -364,7 +422,7 @@ int FindStraightPath(float startX, float startY, float endX, float endY)
 
 	memset(m_fixedEPos, 0, sizeof(m_fixedEPos));
 	memset(m_polys, 0, sizeof(m_polys));
-	memset(m_straightPath, 0, sizeof(m_straightPath));
+	memset(inst->m_straightPath, 0, sizeof(inst->m_straightPath));
 	memset(m_straightPathFlags, 0, sizeof(m_straightPathFlags));
 	memset(m_straightPathPolys, 0, sizeof(m_straightPathPolys));
 
@@ -373,11 +431,11 @@ int FindStraightPath(float startX, float startY, float endX, float endY)
 	dtPolyRef m_startRef = 0;
 	dtPolyRef m_endRef = 0;
 
-	g_navQuery->findNearestPoly(sPos, m_polyPickExt, &m_filter, &m_startRef, 0);
-	g_navQuery->findNearestPoly(ePos, m_polyPickExt, &m_filter, &m_endRef, 0);
-	g_navQuery->findPath(m_startRef, m_endRef, sPos, ePos, &m_filter, m_polys, &m_nPolys, MAX_POLYS);
+	inst->m_navQuery->findNearestPoly(sPos, m_polyPickExt, &m_filter, &m_startRef, 0);
+	inst->m_navQuery->findNearestPoly(ePos, m_polyPickExt, &m_filter, &m_endRef, 0);
+	inst->m_navQuery->findPath(m_startRef, m_endRef, sPos, ePos, &m_filter, m_polys, &m_nPolys, MAX_POLYS);
 
-	m_nStraightPath = 0;
+	inst->m_nStraightPath = 0;
 
 	if (m_nPolys > 0)
 	{
@@ -387,29 +445,29 @@ int FindStraightPath(float startX, float startY, float endX, float endY)
 		m_fixedEPos[2] = ePos[2];
 
 		if (m_polys[m_nPolys - 1] != m_endRef)
-			g_navQuery->closestPointOnPoly(m_polys[m_nPolys - 1], ePos, m_fixedEPos, 0);
+			inst->m_navQuery->closestPointOnPoly(m_polys[m_nPolys - 1], ePos, m_fixedEPos, 0);
 
-		g_navQuery->findStraightPath(sPos, m_fixedEPos, m_polys, m_nPolys, m_straightPath, m_straightPathFlags,
-			m_straightPathPolys, &m_nStraightPath, MAX_POLYS, m_nStraightPathOptions);
+		inst->m_navQuery->findStraightPath(sPos, m_fixedEPos, m_polys, m_nPolys, inst->m_straightPath, m_straightPathFlags,
+			m_straightPathPolys, &inst->m_nStraightPath, MAX_POLYS, m_nStraightPathOptions);
 
-		if (m_nStraightPath >= MAX_POLYS)
+		if (inst->m_nStraightPath >= MAX_POLYS)
 		{
-			m_nStraightPath = MAX_POLYS;
+			inst->m_nStraightPath = MAX_POLYS;
 			LOG("straightPath out of bound of max polys.");
 		}
 	}
-	LOG("FindStraightPath End:%d", m_nStraightPath);
-	return m_nStraightPath;
+	LOG("FindStraightPath End:%d", inst->m_nStraightPath);
+	return inst->m_nStraightPath;
 }
 
-bool GetPathPoint(int index, float& x, float& y)
+bool GetPathPoint(NavMeshInstance* inst, int index, float& x, float& y)
 {
 	LOG("GetPathPoint:%d", index);
 
-	if (index >= m_nStraightPath)
+	if (index >= inst->m_nStraightPath)
 		return false;
 
-	auto startPtr = &m_straightPath[index * 3];
+	auto startPtr = &inst->m_straightPath[index * 3];
 	x = -startPtr[0];
 	y = startPtr[2];
 
@@ -417,8 +475,10 @@ bool GetPathPoint(int index, float& x, float& y)
 	return true;
 }
 
-bool PathRaycast(float startX, float startY, float endX, float endY, float& hitX, float& hitY)
+bool PathRaycast(NavMeshInstance* inst, float startX, float startY, float endX, float endY, float& hitX, float& hitY)
 {
+	hitX = 0;
+	hitY = 0;
 	float sPos[3] = { 0 };
 	sPos[0] = -startX;
 	sPos[1] = 0.f;
@@ -440,11 +500,26 @@ bool PathRaycast(float startX, float startY, float endX, float endY, float& hitX
 	dtPolyRef m_polys[MAX_POLYS];
 
 	dtPolyRef m_startRef = 0;
-	g_navQuery->findNearestPoly(sPos, m_polyPickExt, &m_filter, &m_startRef, 0);
+	inst->m_navQuery->findNearestPoly(sPos, m_polyPickExt, &m_filter, &m_startRef, 0);
 
 	float t = 0;
 	int m_npolys = 0;
-	g_navQuery->raycast(m_startRef, sPos, ePos, &m_filter, &t, m_hitNormal, m_polys, &m_npolys, MAX_POLYS);
+	dtStatus status = inst->m_navQuery->raycast(m_startRef, sPos, ePos, &m_filter, &t, m_hitNormal, m_polys, &m_npolys, MAX_POLYS);
+	bool success = dtStatusSucceed(status);
+	if (sPos[0]==ePos[0]&&sPos[2]==ePos[2])
+	{
+		if ((m_npolys == 0 || !success))
+		{
+			// No hit
+			hitX = sPos[0];
+			hitY = sPos[2];
+			return false;
+		}
+		else
+		{
+			return true;
+		}
+	}
 	if (t > 1)
 	{
 		// No hit
@@ -461,22 +536,17 @@ bool PathRaycast(float startX, float startY, float endX, float endY, float& hitX
 	}
 }
 
-void UnLoadNavMesh()
+void UnLoadNavMesh(NavMeshInstance* inst)
 {
-	if (g_navMesh)
+	if (inst)
 	{
-		dtFreeNavMesh(g_navMesh);
-		g_navMesh = nullptr;
-	}
-	if (g_navQuery)
-	{
-		dtFreeNavMeshQuery(g_navQuery);
-		g_navQuery = nullptr;
-	}
-	if (g_tileCache)
-	{
-		dtFreeTileCache(g_tileCache);
-		g_tileCache = nullptr;
+		auto itr = std::find(g_navmesh_insts.begin(), g_navmesh_insts.end(), inst);
+		if (itr != g_navmesh_insts.end())
+		{
+			g_navmesh_insts.erase(itr);
+			g_navmesh_insts.remove(inst);
+		}
+		delete inst;
 	}
 #ifdef ENABLE_LOG
 	if (fp)
@@ -489,17 +559,17 @@ void UnLoadNavMesh()
 }
 
 
-bool AddObstacles(float x, float y, float z, float radius, float height, unsigned int& id, bool update)
+bool AddObstacles(NavMeshInstance* inst, float x, float y, float z, float radius, float height, unsigned int& id, bool update)
 {
-	if (g_tileCache == nullptr)
+	if (inst->m_tileCache == nullptr)
 		return false;
 	float pos[3] = {-x,y,z};
-	dtStatus status = ((dtTileCache*)g_tileCache)->addObstacle(pos, radius, height, (dtObstacleRef*)&id);
+	dtStatus status = ((dtTileCache*)inst->m_tileCache)->addObstacle(pos, radius, height, (dtObstacleRef*)&id);
 	if ((status & DT_BUFFER_TOO_SMALL))
 	{
-		if (UpdateObstaclesMesh())
+		if (UpdateObstaclesMesh(inst))
 		{
-			status = ((dtTileCache*)g_tileCache)->addObstacle(pos, radius, height, (dtObstacleRef*)&id);
+			status = ((dtTileCache*)inst->m_tileCache)->addObstacle(pos, radius, height, (dtObstacleRef*)&id);
 			update = false;
 		}
 	}
@@ -508,7 +578,7 @@ bool AddObstacles(float x, float y, float z, float radius, float height, unsigne
 	{
 		if (update)
 		{
-			return UpdateObstaclesMesh();
+			return UpdateObstaclesMesh(inst);
 		}
 	}
 	else
@@ -517,18 +587,18 @@ bool AddObstacles(float x, float y, float z, float radius, float height, unsigne
 	}
 	return success;
 }
-bool AddBoxObstacles(float minx, float miny, float minz, float maxx, float maxy, float maxz, unsigned int& id, bool update)
+bool AddBoxObstacles(NavMeshInstance* inst, float minx, float miny, float minz, float maxx, float maxy, float maxz, unsigned int& id, bool update)
 {
-	if (g_tileCache == nullptr)
+	if (inst->m_tileCache == nullptr)
 		return false;
 	float bmin[3] = { -maxx,miny,minz };
 	float bmax[3] = { -minx,maxy,maxz };
-	dtStatus status = ((dtTileCache*)g_tileCache)->addBoxObstacle(bmin, bmax, (dtObstacleRef*)&id);
+	dtStatus status = ((dtTileCache*)inst->m_tileCache)->addBoxObstacle(bmin, bmax, (dtObstacleRef*)&id);
 	if ((status & DT_BUFFER_TOO_SMALL))
 	{
-		if (UpdateObstaclesMesh())
+		if (UpdateObstaclesMesh(inst))
 		{
-			status = ((dtTileCache*)g_tileCache)->addBoxObstacle(bmin, bmax, (dtObstacleRef*)&id);
+			status = ((dtTileCache*)inst->m_tileCache)->addBoxObstacle(bmin, bmax, (dtObstacleRef*)&id);
 			update = false;
 		}
 	}
@@ -537,7 +607,7 @@ bool AddBoxObstacles(float minx, float miny, float minz, float maxx, float maxy,
 	{
 		if (update)
 		{
-			return UpdateObstaclesMesh();
+			return UpdateObstaclesMesh(inst);
 		}
 	}
 	else
@@ -546,17 +616,17 @@ bool AddBoxObstacles(float minx, float miny, float minz, float maxx, float maxy,
 	}
 	return success;
 }
-bool RemoveObstacles(unsigned int id, bool update)
+bool RemoveObstacles(NavMeshInstance* inst, unsigned int id, bool update)
 {
-	if (g_tileCache == nullptr)
+	if (inst->m_tileCache == nullptr)
 		return false;
-	dtStatus status = ((dtTileCache*)g_tileCache)->removeObstacle((dtObstacleRef)id);
+	dtStatus status = ((dtTileCache*)inst->m_tileCache)->removeObstacle((dtObstacleRef)id);
 	bool success = dtStatusSucceed(status);
 	if (success)
 	{
 		if (update)
 		{
-			return UpdateObstaclesMesh();
+			return UpdateObstaclesMesh(inst);
 		}
 	}
 	else
@@ -567,16 +637,16 @@ bool RemoveObstacles(unsigned int id, bool update)
 	return success;
 }
 
-bool UpdateObstaclesMesh()
+bool UpdateObstaclesMesh(NavMeshInstance* inst)
 {
-	if (g_tileCache == nullptr || g_navQuery == nullptr)
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr)
 		return false;
 
 	bool upToDate = false;
-	dtNavMesh* navMeshQuery = (dtNavMesh*)(((dtNavMeshQuery*)g_navQuery)->getAttachedNavMesh());
+	dtNavMesh* navMeshQuery = (dtNavMesh*)(((dtNavMeshQuery*)inst->m_navQuery)->getAttachedNavMesh());
 	while (!upToDate)
 	{
-		dtStatus status = ((dtTileCache*)g_tileCache)->update(0, navMeshQuery, &upToDate);
+		dtStatus status = ((dtTileCache*)inst->m_tileCache)->update(0, navMeshQuery, &upToDate);
 		if (!dtStatusSucceed(status))
 		{
 			printf("tickUpdate fail:%d\n", status);
@@ -584,4 +654,156 @@ bool UpdateObstaclesMesh()
 		}
 	}
 	return true;
+}
+
+bool InitCrowd(NavMeshInstance* inst, int max_agent/* = 128*/, float agent_radius/*=0.7*/)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+
+	inst->m_crowd->init(max_agent, agent_radius, inst->m_navMesh);
+
+	auto crowd = inst->m_crowd;
+	// Make polygons with 'disabled' flag invalid.
+	crowd->getEditableFilter(0)->setExcludeFlags(SAMPLE_POLYFLAGS_DISABLED);
+
+	// Setup local avoidance params to different qualities.
+	dtObstacleAvoidanceParams params;
+	// Use mostly default settings, copy from dtCrowd.
+	memcpy(&params, crowd->getObstacleAvoidanceParams(0), sizeof(dtObstacleAvoidanceParams));
+
+	// Low (11)
+	params.velBias = 0.5f;
+	params.adaptiveDivs = 5;
+	params.adaptiveRings = 2;
+	params.adaptiveDepth = 1;
+	crowd->setObstacleAvoidanceParams(0, &params);
+
+	// Medium (22)
+	params.velBias = 0.5f;
+	params.adaptiveDivs = 5;
+	params.adaptiveRings = 2;
+	params.adaptiveDepth = 2;
+	crowd->setObstacleAvoidanceParams(1, &params);
+
+	// Good (45)
+	params.velBias = 0.5f;
+	params.adaptiveDivs = 7;
+	params.adaptiveRings = 2;
+	params.adaptiveDepth = 3;
+	crowd->setObstacleAvoidanceParams(2, &params);
+
+	// High (66)
+	params.velBias = 0.5f;
+	params.adaptiveDivs = 7;
+	params.adaptiveRings = 3;
+	params.adaptiveDepth = 3;
+
+	crowd->setObstacleAvoidanceParams(3, &params);
+
+	return true;
+}
+bool AddCrowdAgent(NavMeshInstance* inst, float x, float y, float z, float radius, float height, float maxAcceleration, float maxSpeed, unsigned int& id, int update_flag /*= 0*/)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+	auto crowd = inst->m_crowd;
+	dtCrowdAgentParams ap;
+	memset(&ap, 0, sizeof(ap));
+	ap.radius = radius;
+	ap.height = height;
+	ap.maxAcceleration = maxAcceleration;
+	ap.maxSpeed = maxSpeed;
+	ap.collisionQueryRange = ap.radius * 12.0f;
+	ap.pathOptimizationRange = ap.radius * 30.0f;
+	ap.updateFlags = update_flag;
+	ap.obstacleAvoidanceType = 3;
+	ap.separationWeight = 2;
+
+	float pos[3] = { -x,y,z };
+	id = crowd->addAgent(pos, &ap);
+
+	return true;
+}
+
+bool RemoveCrowdAgent(NavMeshInstance* inst, unsigned int id)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+	dtCrowd* crowd = inst->m_crowd;
+	crowd->removeAgent(id);
+
+	return true;
+}
+
+bool UpdateCrowdAgent(NavMeshInstance* inst, float dt)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+	inst->m_crowd->update(dt, nullptr);
+	return true;
+}
+
+bool GetCrowdAgentPos(NavMeshInstance* inst, int index, float& x, float& y)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+
+	const dtCrowdAgent* ag = inst->m_crowd->getAgent(index);
+	if (ag == nullptr)
+		return false;
+
+	auto startPtr = ag->npos;
+	x = -startPtr[0];
+	y = startPtr[2];
+
+	return true;
+}
+
+bool ResetCrowdAgentTarget(NavMeshInstance* inst, int index)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+	inst->m_crowd->resetMoveTarget(index);
+
+	return true;
+}
+bool SetCrowdAgentTarget(NavMeshInstance* inst, int index, float x, float y)
+{
+	if (inst->m_tileCache == nullptr || inst->m_navQuery == nullptr || inst->m_crowd == nullptr)
+		return false;
+
+	const dtCrowdAgent* ag = inst->m_crowd->getAgent(index);
+	if (ag == nullptr)
+		return false;
+
+	float ePos[3] = { 0 };
+	ePos[0] = -x;
+	ePos[1] = 0.f;
+	ePos[2] = y;
+
+	dtQueryFilter m_filter;
+	m_filter.setIncludeFlags(SAMPLE_POLYFLAGS_ALL ^ SAMPLE_POLYFLAGS_DISABLED);
+	m_filter.setExcludeFlags(0);
+
+	float m_polyPickExt[3] = { 2.0f, 4.0f, 2.0f };
+
+	dtPolyRef m_startRef = 0;
+	inst->m_navQuery->findNearestPoly(ePos, m_polyPickExt, &m_filter, &m_startRef, 0);
+	inst->m_crowd->requestMoveTarget(index, m_startRef, ePos);
+	return true;
+}
+
+
+void ClearNavMesh()
+{
+	for (auto itr = g_navmesh_insts.begin(); itr != g_navmesh_insts.end(); ++itr)
+	{
+		NavMeshInstance* inst = *itr;
+		if (inst)
+		{
+			delete inst;
+		}
+	}
+	g_navmesh_insts.clear();
 }

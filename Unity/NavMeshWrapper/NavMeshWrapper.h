@@ -8,15 +8,26 @@
 
 extern "C"
 {
-	EXPORT_API bool LoadNavMesh(unsigned char* pucValue, unsigned int uiLength);
-	EXPORT_API int FindStraightPath(float startX, float startY, float endX, float endY);
-	EXPORT_API bool GetPathPoint(int index, float& x, float& y);
-	EXPORT_API bool PathRaycast(float startX, float startY, float endX, float endY, float& hitX, float& hitY);	
-	EXPORT_API void UnLoadNavMesh();
+	class NavMeshInstance;
+
+	EXPORT_API NavMeshInstance* LoadNavMesh(unsigned char* pucValue, unsigned int uiLength);
+	EXPORT_API int FindStraightPath(NavMeshInstance* inst, float startX, float startY, float endX, float endY);
+	EXPORT_API bool GetPathPoint(NavMeshInstance* inst, int index, float& x, float& y);
+	EXPORT_API bool PathRaycast(NavMeshInstance* inst, float startX, float startY, float endX, float endY, float& hitX, float& hitY);
+	EXPORT_API void UnLoadNavMesh(NavMeshInstance* inst);
 	// 动态阻挡专用函数
-	EXPORT_API bool LoadObstaclesMesh(unsigned char* pucValue, unsigned int uiLength);
-	EXPORT_API bool AddObstacles(float x, float y, float z, float radius, float height, unsigned int &id, bool update);
-	EXPORT_API bool AddBoxObstacles(float minx, float miny, float minz, float maxx, float maxy, float maxz, unsigned int& id, bool update);
-	EXPORT_API bool RemoveObstacles(unsigned int id, bool update);
-	EXPORT_API bool UpdateObstaclesMesh();
+	EXPORT_API NavMeshInstance* LoadObstaclesMesh(unsigned char* pucValue, unsigned int uiLength);
+	EXPORT_API bool AddObstacles(NavMeshInstance* inst, float x, float y, float z, float radius, float height, unsigned int &id, bool update);
+	EXPORT_API bool AddBoxObstacles(NavMeshInstance* inst, float minx, float miny, float minz, float maxx, float maxy, float maxz, unsigned int& id, bool update);
+	EXPORT_API bool RemoveObstacles(NavMeshInstance* inst, unsigned int id, bool update);
+	EXPORT_API bool UpdateObstaclesMesh(NavMeshInstance* inst);
+	// 集群寻路
+	EXPORT_API bool InitCrowd(NavMeshInstance* inst, int max_agent = 128, float agent_radius = 0.7);
+	EXPORT_API bool AddCrowdAgent(NavMeshInstance* inst, float x, float y, float z, float radius, float height, float maxAcceleration, float maxSpeed, unsigned int& id, int update_flag = 0);
+	EXPORT_API bool RemoveCrowdAgent(NavMeshInstance* inst, unsigned int id);
+	EXPORT_API bool UpdateCrowdAgent(NavMeshInstance* inst, float dt);
+	EXPORT_API bool GetCrowdAgentPos(NavMeshInstance* inst, int index, float& x, float& y);
+	EXPORT_API bool ResetCrowdAgentTarget(NavMeshInstance* inst, int index);
+	EXPORT_API bool SetCrowdAgentTarget(NavMeshInstance* inst, int index, float x, float y);
+	EXPORT_API void ClearNavMesh();
 }

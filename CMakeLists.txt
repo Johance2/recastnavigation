@@ -5,7 +5,6 @@ cmake_minimum_required(VERSION 3.0)
 #set(CMAKE_ANDROID_NDK "C:/Microsoft/AndroidNDK/android-ndk-r21e")
 #set(CMAKE_SYSTEM_NAME Android)
 #set(CMAKE_ANDROID_STANDALONE_TOOLCHAIN "C:/Microsoft/AndroidNDK/android-ndk-r21e/build/cmake/android.toolchain.cmake")
-
 project(RecastNavigation)
 
 # lib versions
